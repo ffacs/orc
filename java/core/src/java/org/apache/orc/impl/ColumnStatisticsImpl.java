@@ -23,18 +23,11 @@ import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.WritableComparator;
-import org.apache.orc.BinaryColumnStatistics;
-import org.apache.orc.BooleanColumnStatistics;
-import org.apache.orc.CollectionColumnStatistics;
-import org.apache.orc.ColumnStatistics;
-import org.apache.orc.DateColumnStatistics;
-import org.apache.orc.DecimalColumnStatistics;
-import org.apache.orc.DoubleColumnStatistics;
-import org.apache.orc.IntegerColumnStatistics;
-import org.apache.orc.OrcProto;
-import org.apache.orc.StringColumnStatistics;
-import org.apache.orc.TimestampColumnStatistics;
-import org.apache.orc.TypeDescription;
+import org.apache.orc.*;
+import org.apache.orc.geometry.BoundingBox;
+import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.io.ParseException;
+import org.locationtech.jts.io.WKBReader;
 import org.threeten.extra.chrono.HybridChronology;
 
 import java.sql.Date;
@@ -1858,6 +1851,157 @@ public class ColumnStatisticsImpl implements ColumnStatistics {
   private boolean hasNull = false;
   private long bytesOnDisk = 0;
 
+  private static final class GeometryStatisticsImpl extends ColumnStatisticsImpl
+      implements GeometryColumnStatistics {
+
+    private final TypeDescription.GeometryType.Edges edges;
+    private final BoundingBox boundingBox;
+    private final WKBReader reader = new WKBReader();
+
+    @Override
+    public void reset() {
+      super.reset();
+      boundingBox.reset();
+    }
+
+    GeometryStatisticsImpl(TypeDescription.GeometryType.Edges edges, OrcProto.ColumnStatistics stats) {
+      super(stats);
+      this.edges = edges;
+      OrcProto.GeometryStatistics geometryStatistics = stats.getGeometryStatistics();
+      if (geometryStatistics.hasBbox()) {
+        boundingBox = fromOrcBoundingBox(geometryStatistics.getBbox());
+      } else {
+        boundingBox = new BoundingBox();
+      }
+    }
+
+    GeometryStatisticsImpl(TypeDescription.GeometryType.Edges edges) {
+      this.edges = edges;
+      boundingBox = new BoundingBox();
+    }
+
+    @Override
+    public void merge(ColumnStatisticsImpl other) {
+      if (other instanceof GeometryStatisticsImpl geo) {
+        boundingBox.merge(geo.boundingBox);
+      } else if (!(other instanceof GeometryColumnStatistics)) {
+        throw new IllegalArgumentException("Incompatible merging of geometry column statistics");
+      } else {
+        if (other.isStatsExists()) {
+          throw new IllegalArgumentException("Incompatible merging of geometry column statistics");
+        }
+      }
+      super.merge(other);
+    }
+
+    @Override
+    public OrcProto.ColumnStatistics.Builder serialize() {
+      OrcProto.ColumnStatistics.Builder result = super.serialize();
+      OrcProto.GeometryStatistics.Builder geometryStats = OrcProto.GeometryStatistics.newBuilder();
+      geometryStats.setBbox(toOrcBoundingBox(boundingBox));
+      result.setGeometryStatistics(geometryStats);
+      return result;
+    }
+
+    @Override
+    public String toString() {
+      return "GeometryStatistics{" + "boundingBox="
+              + boundingBox +
+              '}';
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) {
+        return true;
+      }
+      if (!(o instanceof GeometryStatisticsImpl that)) {
+        return false;
+      }
+      if (!super.equals(o)) {
+        return false;
+      }
+      return boundingBox.equals(that.boundingBox);
+    }
+
+    @Override
+    public int hashCode() {
+      int result = super.hashCode();
+      result = 31 * result + boundingBox.hashCode();
+      return result;
+    }
+
+    @Override
+    public BoundingBox getBoundingBox() {
+      return boundingBox;
+    }
+
+    @Override
+    public void updateGeometry(BytesWritable value) {
+      if (value == null) {
+        return;
+      }
+      try {
+        Geometry geometry = reader.read(value.getBytes());
+        update(geometry);
+      } catch (ParseException e) {
+        abort();
+      }
+    }
+
+    @Override
+    public void updateGeometry(byte[] bytes, int offset, int length, int repetitions) {
+      BytesWritable value = new BytesWritable();
+      value.set(bytes, offset, length);
+      try {
+        Geometry geometry = reader.read(value.getBytes());
+        update(geometry);
+      } catch (ParseException e) {
+        abort();
+      }
+    }
+
+    private boolean supportBoundingBox() {
+      return edges == TypeDescription.GeometryType.Edges.PLANNER;
+    }
+
+    private OrcProto.BoundingBox toOrcBoundingBox(BoundingBox bbox) {
+      OrcProto.BoundingBox.Builder builder = OrcProto.BoundingBox.newBuilder();
+      builder.setXmin(bbox.getXMin());
+      builder.setXmin(bbox.getXMin());
+      builder.setXmax(bbox.getXMax());
+      builder.setYmin(bbox.getYMin());
+      builder.setYmax(bbox.getYMax());
+      builder.setZmin(bbox.getZMin());
+      builder.setZmax(bbox.getZMax());
+      builder.setMmin(bbox.getMMin());
+      builder.setMmax(bbox.getMMax());
+      return builder.build();
+    }
+
+    private BoundingBox fromOrcBoundingBox(OrcProto.BoundingBox box) {
+      return new BoundingBox(
+              box.getXmin(),
+              box.getXmax(),
+              box.getYmin(),
+              box.getYmax(),
+              box.getZmin(),
+              box.getZmax(),
+              box.getMmin(),
+              box.getMmax());
+    }
+
+    private void update(Geometry geometry) {
+      if (supportBoundingBox()) {
+        boundingBox.update(geometry);
+      }
+    }
+
+    private void abort() {
+      boundingBox.abort();
+    }
+  }
+
   ColumnStatisticsImpl(OrcProto.ColumnStatistics stats) {
     if (stats.hasNumberOfValues()) {
       count = stats.getNumberOfValues();
@@ -1959,6 +2103,12 @@ public class ColumnStatisticsImpl implements ColumnStatistics {
     return (count > 0 || hasNull == true);
   }
 
+  public void updateGeometry(BytesWritable value) { throw new UnsupportedOperationException("Can't update geometry"); }
+
+  public void updateGeometry(byte[] bytes, int offset, int length, int repetitions) {
+    throw new UnsupportedOperationException("Can't update geometry");
+  }
+
   public void merge(ColumnStatisticsImpl stats) {
     count += stats.count;
     hasNull |= stats.hasNull;
@@ -2046,6 +2196,8 @@ public class ColumnStatisticsImpl implements ColumnStatistics {
         return new TimestampInstantStatisticsImpl();
       case BINARY:
         return new BinaryStatisticsImpl();
+      case Geometry:
+        return new GeometryStatisticsImpl(schema.getGeometryType().getEdges());
       default:
         return new ColumnStatisticsImpl();
     }
@@ -2089,6 +2241,9 @@ public class ColumnStatisticsImpl implements ColumnStatistics {
                      writerUsedProlepticGregorian, convertToProlepticGregorian);
     } else if(stats.hasBinaryStatistics()) {
       return new BinaryStatisticsImpl(stats);
+    }else if (stats.hasGeometryStatistics()) {
+      return new GeometryStatisticsImpl(schema.getGeometryType().getEdges(),
+                                        stats);
     } else {
       return new ColumnStatisticsImpl(stats);
     }

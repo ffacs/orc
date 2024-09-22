@@ -69,6 +69,7 @@ public class TypeUtils {
       case BINARY:
       case CHAR:
       case VARCHAR:
+      case Geometry:
         return new BytesColumnVector(maxSize);
       case STRUCT: {
         List<TypeDescription> children = schema.getChildren();

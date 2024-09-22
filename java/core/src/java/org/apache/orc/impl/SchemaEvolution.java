@@ -460,6 +460,7 @@ public class SchemaEvolution {
         case TIMESTAMP:
         case TIMESTAMP_INSTANT:
         case BINARY:
+        case Geometry:
         case DATE:
           // these are always a match
           break;

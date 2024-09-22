@@ -50,6 +50,57 @@ public class TypeDescription
   public static final String ENCRYPT_ATTRIBUTE = "encrypt";
   public static final String MASK_ATTRIBUTE = "mask";
 
+  static final public class GeometryType {
+    public GeometryEncoding getEncoding() {
+      return encoding;
+    }
+
+    public Edges getEdges() {
+      return edges;
+    }
+
+    public String getCrs() {
+      return crs;
+    }
+
+    public String getCrs_encoding() {
+      return crs_encoding;
+    }
+
+    public String getMetadata() { return metadata; }
+
+    public enum GeometryEncoding {
+      WKB
+    }
+
+    public enum Edges {
+      PLANNER,
+      SPHERICAL
+    }
+
+    public static final String CRS_ENCODING_DEFAULT = "PROJJSON";
+    private final GeometryEncoding encoding;
+    private final Edges edges;
+    private final String crs;
+    private final String crs_encoding;
+    private final String metadata;
+
+    public GeometryType(
+            GeometryEncoding encoding, Edges edges, String crs, String crs_encoding, String metadata) {
+      if (encoding == null) {
+        throw new IllegalArgumentException("Geometry encoding is required");
+      }
+      if (edges == null) {
+        throw new IllegalArgumentException("Edges is required");
+      }
+      this.encoding = encoding;
+      this.edges = edges;
+      this.crs = crs;
+      this.crs_encoding = crs_encoding;
+      this.metadata = metadata;
+    }
+  }
+
   @Override
   public int compareTo(TypeDescription other) {
     if (this == other) {
@@ -116,7 +167,8 @@ public class TypeDescription
     MAP("map", false),
     STRUCT("struct", false),
     UNION("uniontype", false),
-    TIMESTAMP_INSTANT("timestamp with local time zone", true);
+    TIMESTAMP_INSTANT("timestamp with local time zone", true),
+    Geometry("geometry", true);
 
     Category(String name, boolean isPrimitive) {
       this.name = name;
@@ -187,6 +239,8 @@ public class TypeDescription
     return new TypeDescription(Category.DECIMAL);
   }
 
+  public static TypeDescription createGeometry() { return new TypeDescription(Category.Geometry); }
+
   /**
    * Parse TypeDescription from the Hive type names. This is the inverse
    * of TypeDescription.toString()
@@ -236,6 +290,20 @@ public class TypeDescription
       throw new IllegalArgumentException("scale is out of range at " + scale);
     }
     this.scale = scale;
+    return this;
+  }
+
+  /**
+   * For geometry types, set the GeometryType
+   * @param geometryType the GeometryType
+   * @return this
+   */
+  public TypeDescription withGeometryType(GeometryType geometryType) {
+    if (category != Category.Geometry) {
+      throw new IllegalArgumentException("GeometryType is only allowed on geometry" +
+              " and not " + category.name);
+    }
+    this.geometryType = geometryType;
     return this;
   }
 
@@ -366,6 +434,13 @@ public class TypeDescription
     result.maxLength = maxLength;
     result.precision = precision;
     result.scale = scale;
+    if (geometryType != null) {
+      result.geometryType = new GeometryType(geometryType.getEncoding(),
+                                             geometryType.getEdges(),
+                                             geometryType.getCrs(),
+                                             geometryType.getCrs_encoding(),
+                                             geometryType.getMetadata());
+    }
     if (fieldNames != null) {
       result.fieldNames.addAll(fieldNames);
     }
@@ -558,6 +633,12 @@ public class TypeDescription
   }
 
   /**
+   * Get the type info of geometry type
+   * @return the type info of geometry
+   */
+  public GeometryType getGeometryType() { return geometryType; }
+
+  /**
    * For struct types, get the list of field names.
    * @return the list of field names.
    */
@@ -664,6 +745,7 @@ public class TypeDescription
   private int maxLength = DEFAULT_LENGTH;
   private int precision = DEFAULT_PRECISION;
   private int scale = DEFAULT_SCALE;
+  private GeometryType geometryType;
 
   static void printFieldName(StringBuilder buffer, String name) {
     if (UNQUOTED_NAMES.matcher(name).matches()) {

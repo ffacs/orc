@@ -171,6 +171,33 @@ public class OrcUtils {
         type.setPrecision(typeDescr.getPrecision());
         type.setScale(typeDescr.getScale());
         break;
+      case Geometry:
+        type.setKind(OrcProto.Type.Kind.GEOMETRY);
+        OrcProto.GeometryType.Builder builder = OrcProto.GeometryType.newBuilder();
+        TypeDescription.GeometryType geometryType = typeDescr.getGeometryType();
+        // set encoding
+        if (geometryType.getEncoding() == TypeDescription.GeometryType.GeometryEncoding.WKB) {
+          builder.setEncoding(OrcProto.GeometryType.GeometryEncoding.WKB);
+        } else {
+          throw new IllegalArgumentException("Unsupported geometry encoding: " + geometryType.getEncoding());
+        }
+        // set edges
+        switch (geometryType.getEdges()) {
+          case PLANNER -> builder.setEdges(OrcProto.GeometryType.Edges.PLANAR);
+          case SPHERICAL -> builder.setEdges(OrcProto.GeometryType.Edges.SPHERICAL);
+          default -> throw new IllegalArgumentException("Unsupported geometry edges: " + geometryType.getEdges());
+        }
+        if (geometryType.getCrs() != null) {
+          builder.setCrs(geometryType.getCrs());
+        }
+        if (geometryType.getCrs_encoding() != null) {
+          builder.setCrsEncoding(geometryType.getCrs_encoding());
+        }
+        if (geometryType.getMetadata() != null) {
+          builder.setMetadata(geometryType.getMetadata());
+        }
+        type.setGeometry(builder);
+        break;
       case LIST:
         type.setKind(OrcProto.Type.Kind.LIST);
         type.addSubtypes(children.get(0).getId());
@@ -324,6 +351,28 @@ public class OrcUtils {
         if (type.hasPrecision()) {
           result.withPrecision(type.getPrecision());
         }
+        break;
+      case GEOMETRY:
+        result = TypeDescription.createGeometry();
+        OrcProto.GeometryType orcGeometryType = type.getGeometry();
+        TypeDescription.GeometryType.Edges edges;
+        TypeDescription.GeometryType.GeometryEncoding encoding;
+        if (orcGeometryType.getEncoding() == OrcProto.GeometryType.GeometryEncoding.WKB) {
+            encoding = TypeDescription.GeometryType.GeometryEncoding.WKB;
+        } else {
+            throw new IllegalArgumentException("Unsupported geometry encoding: " + orcGeometryType.getEncoding());
+        }
+        switch (orcGeometryType.getEdges()) {
+          case PLANAR -> edges = TypeDescription.GeometryType.Edges.PLANNER;
+          case SPHERICAL -> edges = TypeDescription.GeometryType.Edges.SPHERICAL;
+          default -> throw new FileFormatException("Unrecognized geometry edges" + orcGeometryType.getEdges());
+        }
+        TypeDescription.GeometryType geometryType = new TypeDescription.GeometryType(encoding,
+                                                                                     edges,
+                                                                                     orcGeometryType.getCrs(),
+                                                                                     orcGeometryType.getCrsEncoding(),
+                                                                                     orcGeometryType.getMetadata());
+        result.withGeometryType(geometryType);
         break;
       case LIST:
         if (type.getSubtypesCount() != 1) {

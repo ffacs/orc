@@ -21,21 +21,18 @@ package org.apache.orc.impl;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.serde2.io.DateWritable;
-import org.apache.orc.DecimalColumnStatistics;
-import org.apache.orc.OrcFile;
-import org.apache.orc.OrcProto;
-import org.apache.orc.Reader;
-import org.apache.orc.TimestampColumnStatistics;
-import org.apache.orc.TypeDescription;
+import org.apache.hadoop.io.BytesWritable;
+import org.apache.orc.*;
+import org.apache.orc.geometry.BoundingBox;
 import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.io.WKBWriter;
 
 import java.io.IOException;
 import java.util.TimeZone;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class TestColumnStatisticsImpl {
 
@@ -216,6 +213,42 @@ public class TestColumnStatisticsImpl {
     assertEquals(10, collectionStatistics.getMinChildren());
     assertEquals(40, collectionStatistics.getMaxChildren());
     assertEquals(100, collectionStatistics.getTotalChildren());
+
+  }
+
+  @Test
+  public void testUpdateGeometry() {
+    TypeDescription desc = TypeDescription.createGeometry()
+                                          .withGeometryType(new TypeDescription.GeometryType(
+                                                  TypeDescription.GeometryType.GeometryEncoding.WKB,
+                                                  TypeDescription.GeometryType.Edges.PLANNER,
+                                                  "EPSG:4326",
+                                                  "PROJJSON",
+                                                  null)
+                                          );
+    ColumnStatisticsImpl stats = ColumnStatisticsImpl.create(desc);
+    GeometryFactory geometryFactory = new GeometryFactory();
+    WKBWriter wkbWriter = new WKBWriter();
+
+    byte[][] points = {
+            wkbWriter.write(geometryFactory.createPoint(new Coordinate(1.0, 1.0))),
+            wkbWriter.write(geometryFactory.createPoint(new Coordinate(2.0, 2.0)))
+    };
+
+    for (byte[] point : points) {
+      stats.updateGeometry(new BytesWritable(point));
+    }
+
+    GeometryColumnStatistics geometryStatistics = (GeometryColumnStatistics)stats;
+    assertNotNull(geometryStatistics);
+    assertEquals(1.0, geometryStatistics.getBoundingBox().getXMin(), 0.0);
+    assertEquals(2.0, geometryStatistics.getBoundingBox().getXMax(), 0.0);
+    assertEquals(1.0, geometryStatistics.getBoundingBox().getYMin(), 0.0);
+    assertEquals(2.0, geometryStatistics.getBoundingBox().getYMax(), 0.0);
+    assertEquals("BoundingBox{xMin=1.0, xMax=2.0, yMin=1.0, yMax=2.0, zMin=Infinity, zMax=-Infinity, mMin=Infinity, mMax=-Infinity}",
+            geometryStatistics.getBoundingBox().toString());
+    assertEquals("GeometryStatistics{boundingBox=BoundingBox{xMin=1.0, xMax=2.0, yMin=1.0, yMax=2.0, zMin=Infinity, zMax=-Infinity, mMin=Infinity, mMax=-Infinity}}",
+            geometryStatistics.toString());
 
   }
 }
