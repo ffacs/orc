@@ -23,7 +23,19 @@ import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.WritableComparator;
-import org.apache.orc.*;
+import org.apache.orc.BinaryColumnStatistics;
+import org.apache.orc.BooleanColumnStatistics;
+import org.apache.orc.CollectionColumnStatistics;
+import org.apache.orc.ColumnStatistics;
+import org.apache.orc.DateColumnStatistics;
+import org.apache.orc.DecimalColumnStatistics;
+import org.apache.orc.DoubleColumnStatistics;
+import org.apache.orc.IntegerColumnStatistics;
+import org.apache.orc.GeometryColumnStatistics;
+import org.apache.orc.OrcProto;
+import org.apache.orc.StringColumnStatistics;
+import org.apache.orc.TimestampColumnStatistics;
+import org.apache.orc.TypeDescription;
 import org.apache.orc.geometry.BoundingBox;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.io.ParseException;
@@ -2103,7 +2115,9 @@ public class ColumnStatisticsImpl implements ColumnStatistics {
     return (count > 0 || hasNull == true);
   }
 
-  public void updateGeometry(BytesWritable value) { throw new UnsupportedOperationException("Can't update geometry"); }
+  public void updateGeometry(BytesWritable value) {
+    throw new UnsupportedOperationException("Can't update geometry");
+  }
 
   public void updateGeometry(byte[] bytes, int offset, int length, int repetitions) {
     throw new UnsupportedOperationException("Can't update geometry");
